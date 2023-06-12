@@ -33,7 +33,7 @@ get_grid_data  <- function(subject, time_lags, gcell_size, location, data){
     df %>% filter(second==s) %>% 
       dplyr::select(signal) %>% 
       mutate(
-      lag_signal = lag(signal, n = lag)) %>%   # for each second, calculate signal and lagged signal 
+      lag_signal = dplyr::lag(signal, n = lag)) %>%   # for each second, calculate signal and lagged signal 
       mutate(cut_sig = cut(signal, breaks = seq(0, max_signal, by = gcell_size), include.lowest = T),
              cut_lagsig = cut(lag_signal, breaks = seq(0, max_signal, by = gcell_size), include.lowest = T)) %>% 
       drop_na() %>% # count # points in each "grid cell" 
