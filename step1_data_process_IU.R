@@ -63,7 +63,15 @@ df_all_final <- df_all_filtered %>% group_by(ID2) %>% mutate(
 ) %>% ungroup() 
 
 
-
+## get columns in unified format 
+df_all_final <- 
+  df_all_final %>% 
+  dplyr::select(signal_lw, signal_lh, signal_la, signal_ra, ID2, time_s_2, J) %>%
+  rename(
+    time = time_s_2,
+    second = J
+  )
+  
 write.csv(df_all_final, "df_all_IU.csv")
 
 rm(list=ls())

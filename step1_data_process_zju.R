@@ -27,10 +27,10 @@ all_data_zju_acc <- all_data %>%
   mutate(
     body_loc = sub(".*/", "", record),
     rec = sub("/.*", "", record),
-    ID = ifelse(session == "session_0", as.numeric(ID), as.numeric(ID) + 22)
-  ) %>% 
+    ID = ifelse(session == "session_0", as.numeric(ID), as.numeric(ID) + 22)) %>% 
   group_by(ID, session, rec, body_loc) %>%
-  mutate(t = row_number()) %>% ungroup()
+  mutate(t = row_number()) %>% 
+  ungroup()
 
 
 # change your WD as necessary to get file list of useful files 
@@ -76,13 +76,22 @@ filtered <- filtered %>% mutate(
     body_loc=="3"~"rpelvis",
     body_loc=="4" ~ "lthigh",
     body_loc=="5" ~ "rankle"
-  )
-)
+  ),
+  signal = sqrt(V1^2 + V2^2 + V3^2)) %>%
+  dplyr::select(-c(body_loc, t)) %>%
+  group_by(ID, session, loc) %>% 
+  mutate(
+    s_allrec = row_number(), 
+    time_allrec = floor(s_allrec/100)+1) %>% 
+  ungroup() %>% 
+  mutate(second = ceiling(s_allrec/100)) %>% 
+  rename(
+    time = s_allrec
+  ) %>% dplyr::select(ID, session, rec, loc, signal, second, time)
 
-# get the sample again and the second of the observation 
-filtered %>% group_by(ID, session, rec, body_loc) %>% mutate(
-  s = row_number(),
-  time = floor(s/100)+1
-) %>%  ungroup() %>% dplyr::select(-c(body_loc, t)) %>% write.csv(., "df_all_zju.csv")
+
+filtered_wide <- filtered %>% pivot_wider(names_from = loc, values_from = signal, names_prefix = "signal_")
+
+write.csv(filtered_wide, "df_all_zju.csv")
 
 rm(list=ls())
