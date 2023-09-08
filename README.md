@@ -6,8 +6,8 @@ This code accompanies a manuscript to identify individuals from their accelerome
 
 This repo contains code to fit three varieties of "fingerprinting" models on two open-source accelerometry-derived walking datasets. 
 
-
 ## Workflow
+
 
 All code is in the `R` folder
 
