@@ -23,7 +23,7 @@ get_summary <- function(filename){
     ungroup() %>%
     group_by(true_subject, model) %>%
     summarize(
-      mean_pred = mean(pred)) %>%
+      mean_pred = mean(pred, na.rm = TRUE)) %>%
     group_by(true_subject) %>%
     mutate(
       rank = rank(-mean_pred)
@@ -49,6 +49,7 @@ result_summary <-
 
 # make nice table for paper 
 result_summary %>%
+  filter(data != "zjus2" & data!= "zjuall") %>%
   mutate(across(3:4, ~round(.x, 2))) %>%
   kbl(caption="Summary of Accuracy",
       format="latex",
@@ -72,7 +73,7 @@ get_accuracies <- function(predictions, seconds){
     ungroup() %>%
     group_by(true_subject, model, sec) %>%
     summarize(
-      mean_pred = mean(pred)) %>%
+      mean_pred = mean(pred, na.rm = TRUE)) %>%
     group_by(true_subject, sec) %>%
     mutate(
       rank = rank(-mean_pred)

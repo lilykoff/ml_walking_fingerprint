@@ -73,6 +73,8 @@ get_functional_data <- function(df, tlen) {
 
 df_fit_zju_s1 <- get_functional_data(df_all_zju_s1, tlen = 1)
 
+df_fit_zju_s1 <- get_functional_data(df_all_zju_s1, tlen = 1)
+
 data_split <- split(df_fit_zju_s1, f = df_fit_zju_s1$ID)
 
 # function to sample percentage
@@ -128,12 +130,13 @@ fit_functional_model <- function(train, test) {
 # note this probably needs to be run on a computing cluster
 preds <- fit_functional_model(data_train, data_test)
 
+
 preds %<>%
   data.frame() %>%
   janitor::clean_names() %>%
   expit()
 
-row_sums <- rowSums(preds)
+row_sums <- rowSums(preds, na.rm = TRUE)
 
 # normalize and add "true subject column"
 
@@ -202,17 +205,29 @@ saveRDS(preds, here::here("predictions/zjus2_func_predictions.rds"))
 
 
 # train on session 1, test on session 2
-df_all_zju <- read_csv("df_all_zju.csv",
+df_all_zju <- read_csv(here::here("data/df_all_zju.csv"),
                        col_types = cols(...1 = col_skip())) %>%
   filter(session != "session_0") %>%
   mutate(ID = ID - 22)
+
+df_all_zju_s1 <- read_csv(here::here("data/df_all_zju.csv"),
+                          col_types = cols(...1 = col_skip())) %>%
+  filter(session == "session_1") %>%
+  mutate(ID = ID - 22)
+
+df_all_zju_s2 <- read_csv(here::here("data/df_all_zju.csv"),
+                          col_types = cols(...1 = col_skip())) %>%
+  filter(session == "session_2") %>%
+  mutate(ID = ID - 22)
+
+df_fit_zju_s1 <- get_functional_data(df_all_zju_s1, tlen = 1)
+df_fit_zju_s2 <- get_functional_data(df_all_zju_s2, tlen = 1)
 
 df_train <- df_fit_zju_s1
 df_test <- df_fit_zju_s2
 
 
 preds <- fit_functional_model(df_train, df_test)
-
 preds %<>%
   data.frame() %>%
   janitor::clean_names() %>%
@@ -228,12 +243,12 @@ preds %<>%
   mutate(across(x1:x153, ~ .x / sum)) %>%
   dplyr::select(-sum) %>%
   ungroup() %>%
-  bind_cols(true_subject = data_test$ID)
+  bind_cols(true_subject = df_test$ID)
 
-saveRDS(preds,
+ saveRDS(preds,
         here::here("predictions/zjus1s2_func_predictions.rds"))
-
-# train/test on combined s1 and s2
+ 
+ # train/test on combined s1 and s2
 df_all_zju <- read_csv(here::here("data/df_all_zju.csv"),
                        col_types = cols(...1 = col_skip())) %>%
   filter(session != "session_0") %>%

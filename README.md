@@ -8,7 +8,6 @@ This repo contains code to fit three varieties of "fingerprinting" models on two
 
 ## Workflow
 
-
 All code is in the `R` folder
 
 ### Downloading data

@@ -298,3 +298,76 @@ plot_w_points_cma(data_train_zju, data_test_zju, sub = 143, raw_data = df_all_zj
 plot_w_points_unadj(data_train_zju, data_test_zju, sub = 143, raw_data = df_all_zju %>%
                       rename(sig = signal_rwrist))
 
+# function to compare the number of sig grid cells - marginal and CMA 
+compare_cma_unadj <-
+  function(data_train, data_test, sub){
+    nzv_trans <- 
+      recipe(ID ~ ., data = data_train) %>% 
+      step_nzv(all_predictors())
+    
+    nzv_estimates <- prep(nzv_trans)
+    
+    nzv <- colnames(juice(nzv_estimates))
+    dat_nzv <- data_train %>% dplyr::select(ID, all_of(nzv), -second)
+    dat_nzv_test <- data_test %>% dplyr::select(ID, all_of(nzv), -second)
+    
+    train <- dat_nzv
+    train$class <- ifelse(train$ID == sub, 1, 0)
+    tmp <- train %>% dplyr::select(-c(ID)) 
+    mod <- glm(class ~ ., data = tmp, family=binomial(link="logit"))
+    
+    
+    summary <-
+      mod %>% 
+      tidy() %>%
+      arrange(p.value) %>%
+      filter(term != "(Intercept)") 
+    
+    terms <- summary$term
+    # variance covariance matrix 
+    # code to cma adjustment 
+    v_hat <- vcov(mod)[terms, terms]
+    a <- 1/(sqrt(diag(v_hat))) 
+    A <- a %*% t(a)
+    C <- v_hat*A
+    
+    q <- mvtnorm::qmvnorm(p = .95, corr = C)$quantile
+    
+    summary <- 
+      summary %>% rowwise() %>% 
+      mutate(
+        lb_marg = estimate - (1.96*std.error),
+        ub_marg = estimate + (1.96*std.error),
+        lb_cma = estimate - (q*std.error),
+        ub_cma = estimate +  (q*std.error),
+        sig_marg = ifelse(between(0, lb_marg, ub_marg), 0, 1),
+        sig_cma = ifelse(between(0, lb_cma, ub_cma), 0, 1),
+      )
+    summary <- 
+      summary %>% rowwise() %>% 
+      mutate(
+        lag = str_sub(term, -3, -2),
+        sig = sub('.', '', str_split(term, " ")[[1]][1]),
+        lagsig = str_split(term, " ")[[1]][2]
+      )
+    
+  return(data.frame(sub = sub,
+                    n_marg = sum(summary$sig_marg),
+                    n_cma = sum(summary$sig_cma),
+                    n_total = nrow(summary)))
+  }
+
+comparison <-
+  map(.x = seq(1, 32, 1),
+      .f = compare_cma_unadj,
+      data_train = data_train_IU,
+      data_test = data_test_IU) %>%
+  list_rbind()
+
+
+comparison_zju <-
+  map(.x = seq(1, 153, 1),
+      .f = compare_cma_unadj,
+      data_train = data_train_zju,
+      data_test = data_test_zju) %>%
+  list_rbind()

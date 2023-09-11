@@ -329,7 +329,7 @@ get_summarized_predictions <- function(predictions, long = FALSE) {
       rename(pred = value) %>%
       ungroup() %>%
       group_by(true_subject, model) %>%
-      summarize(mean_pred = mean(pred)) %>%
+      summarize(mean_pred = mean(pred, na.rm = TRUE)) %>%
       mutate(correct = ifelse(true_subject == model, 1, 0))
   }
   else{
@@ -341,7 +341,7 @@ get_summarized_predictions <- function(predictions, long = FALSE) {
       rename(pred = value) %>%
       ungroup() %>%
       group_by(true_subject, model) %>%
-      summarize(mean_pred = mean(pred)) %>%
+      summarize(mean_pred = mean(pred, na.rm = TRUE)) %>%
       group_by(true_subject) %>%
       summarize(
         maxprob = first(max(mean_pred)),

@@ -3,6 +3,7 @@ library(ggplot2)
 library(tidyverse)
 library(tidymodels)
 expit <- function(x) 1/(1+exp(-x))
+library(kableExtra)
 
 ### figure 1:  problem illustration
 df_all_zju <- read_csv("df_all_zju.csv",
@@ -725,41 +726,6 @@ s136 <-
 ggpubr::ggarrange(s3, s136)
 
 ## accuracies figure 
-all_preds_IU_logreg <- readRDS("~/Documents/ml_walking_fingerprint/Results/logistic/all_predictions_IU_logreg.rds")
-all_preds_IU_ml <-readRDS("~/Documents/ml_walking_fingerprint/Results/tidyml/all_preds_IU_ml_final.rds")
-all_preds_IU_fnl <- readRDS("~/Documents/ml_walking_fingerprint/Results/functional/preds_funtional_reg_IU_final.rds")
-
-colnames(all_preds_IU_logreg) <- colnames(all_preds_IU_ml) <- colnames(all_preds_IU_fnl)
-all_preds_IU_fnl <-
-  all_preds_IU_fnl %>%
-  mutate(across(X1:X32, ~expit(.x)))
-get_prediction_stats <- function(predictions, seconds){
-  predictions %>% 
-    group_by(true_subject) %>% 
-    mutate(
-      sec = floor(row_number()/seconds)) %>% 
-    pivot_longer(cols = -c("true_subject", "sec")) %>%
-    mutate(
-      model = as.numeric(sub(".*X", "", name))) %>%
-    rename(pred = value) %>%
-    ungroup() %>%
-    group_by(true_subject, model, sec) %>%
-    summarize(
-      mean_pred = mean(pred)) %>%
-    group_by(true_subject, sec) %>%
-    summarize(
-      maxprob = max(mean_pred),
-      predicted_subject = model[mean_pred == maxprob]
-    ) %>% ungroup() %>% 
-    dplyr::select(c(true_subject, predicted_subject)) %>% 
-    mutate(across(1:2, factor, levels = unique(predictions$true_subject))) %>%
-    yardstick::conf_mat(., truth = true_subject, estimate = predicted_subject) %>%
-    summary() %>% 
-    mutate(
-      s = seconds
-    )
-}
-
 get_accuracies <- function(predictions, seconds){
   tmp <- 
     predictions %>%
@@ -768,12 +734,12 @@ get_accuracies <- function(predictions, seconds){
       sec = floor(row_number()/seconds)) %>% 
     pivot_longer(cols = -c("true_subject", "sec")) %>%
     mutate(
-      model = as.numeric(sub(".*X", "", name))) %>%
+      model = as.numeric(sub(".*x", "", name))) %>%
     rename(pred = value) %>%
     ungroup() %>%
     group_by(true_subject, model, sec) %>%
     summarize(
-      mean_pred = mean(pred)) %>%
+      mean_pred = mean(pred, na.rm = TRUE)) %>%
     group_by(true_subject, sec) %>%
     mutate(
       rank = rank(-mean_pred)
@@ -794,176 +760,125 @@ get_accuracies <- function(predictions, seconds){
 
 
 secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
-stats_fnl <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_IU_fnl) %>%
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_ml_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "functional"
+    model = "ml",
+    data = "IU"
   )
 
-stats_logreg <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_IU_logreg) %>%
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "logreg"
+    model = "logistic",
+    data = "IU"
   )
 
-stats_ml <-
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_IU_ml) %>%
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_func_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "ml"
+    model = "functional",
+    data = "IU"
   )
 
 accs_IU <-
-  bind_rows(stats_logreg, stats_ml, stats_fnl) 
+  bind_rows(stats_logistic, stats_ml, stats_func) 
 
-
-#supp.labs <- c("Accuracy", "Kappa", "Sensitivity", "Specificity", "NVP", "MCC", "J Index", "Balanced Accuracy", "Precision","Recall", "F1 Score")
-#names(supp.labs) <- unique(all_stats$.metric)
-
-accs_IU %>% 
-  ggplot(aes(x = s, y = value, col = model))+
-  geom_line()+
-  theme_light()+
-  facet_wrap(.~metric, nrow = 2)+
-  labs(x = "Number of Seconds", y = "Estimate", title = "Classification Metrics",
-       subtitle = "Averaged over Varying Number of Seconds")+
-  scale_x_continuous(breaks=c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100))+
-  theme(axis.text.x = element_text(angle=45, size = 4))+
-  scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "Model")
-
-
-## sess 1 zju 
-all_preds_zju_logreg <- readRDS("~/Documents/ml_walking_fingerprint/Results/logistic/all_predictions_zju_logreg_s1.rds")
-all_preds_zju_ml <-readRDS("~/Documents/ml_walking_fingerprint/Results/tidyml/zju/all_preds_s1_corrected.rds")
-all_preds_zju_fnl <- readRDS("~/Documents/ml_walking_fingerprint/Results/functional/preds_functional_reg_zju_s1_final.rds")
-
-colnames(all_preds_zju_logreg) <- colnames(all_preds_zju_ml) <- colnames(all_preds_zju_fnl)
-all_preds_zju_fnl <-
-  all_preds_zju_fnl %>%
-  mutate(across(X1:X153, ~expit(.x)))
-
-
-secs <- c(1,2,5,10,15,20,25)
-stats_fnl <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_zju_fnl) %>%
+secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_ml_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "functional"
+    model = "ml",
+    data = "zjus1"
   )
 
-stats_logreg <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_zju_logreg) %>%
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "logreg"
+    model = "logistic",
+    data = "zjus1"
   )
 
-stats_ml <-
-  map_dfr(.x = secs, 
-          .f = get_accuracies,
-          predictions = all_preds_zju_ml) %>%
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_func_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "ml"
+    model = "functional",
+    data = "zjus1"
   )
 
-accs_zju <-
-  bind_rows(stats_logreg, stats_ml, stats_fnl)
-
-
-accs_zju %>% 
-  ggplot(aes(x = s, y = value, col = model))+
-  geom_line()+
-  theme_light()+
-  facet_wrap(.~metric, nrow = 2)+
-  labs(x = "Number of Seconds", y = "Estimate", title = "Classification Metrics",
-       subtitle = "Averaged over Varying Number of Seconds")+
-  scale_x_continuous(breaks= c(1,2,5,10,15,20,25))+
-  theme(axis.text.x = element_text(angle=45, size = 4))+
-  scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "Model")
-
-## s2 from s1 
-all_preds_zju_logreg <- readRDS("~/Documents/ml_walking_fingerprint/Results/logistic/all_predictions_zju_logreg_s1s2.rds")
-all_preds_zju_ml <-readRDS("~/Documents/ml_walking_fingerprint/Results/tidyml/zju/all_preds_corrected.rds")
-all_preds_zju_fnl <- readRDS("~/Documents/ml_walking_fingerprint/Results/functional/preds_functional_reg_zju_s1s2_new_final.rds")
-
-colnames(all_preds_zju_logreg) <- colnames(all_preds_zju_ml) <- colnames(all_preds_zju_fnl)
-all_preds_zju_fnl <-
-  all_preds_zju_fnl %>%
-  mutate(across(X1:X153, ~expit(.x)))
+accs_zjus1 <-
+  bind_rows(stats_logistic, stats_ml, stats_func) 
 
 
 secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
-stats_fnl <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_zju_fnl) %>%
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_ml_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "functional"
+    model = "ml",
+    data = "zjus1s2"
   )
 
-stats_logreg <- 
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_zju_logreg) %>%
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "logreg"
+    model = "logistic",
+    data = "zjus1s2"
   )
 
-stats_ml <-
-  map_dfr(.x = secs,
-          .f = get_accuracies,
-          predictions = all_preds_zju_ml) %>%
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_func_predictions.rds"))) %>%
+  list_rbind() %>%
   mutate(
-    model = "ml"
+    model = "functional",
+    data = "zjus1s2"
   )
 
-accs_zju_s1s2 <-
-  bind_rows(stats_logreg, stats_ml, stats_fnl)
-
-accs_zju_s1s2 %>% 
-  ggplot(aes(x = s, y = value, col = model))+
-  geom_line()+
-  theme_light()+
-  facet_wrap(.~metric, nrow = 2)+
-  labs(x = "Number of Seconds", y = "Estimate", title = "Classification Metrics",
-       subtitle = "Averaged over Varying Number of Seconds")+
-  scale_x_continuous(breaks=c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100))+
-  theme(axis.text.x = element_text(angle=45, size = 4))+
-  scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "Model")
+accs_zjus1s2 <-
+  bind_rows(stats_logistic, stats_ml, stats_func) 
 
 
+all_accs <-
+  bind_rows(accs_IU, accs_zjus1, accs_zjus1s2)
 
-## bind together 
-all_acc <- 
-  accs_IU %>% mutate(
-    data = "IU"
-  ) %>% bind_rows(
-    accs_zju %>% 
-      mutate(
-        data = "ZJU S1"
-      )
-  ) %>% bind_rows(
-    accs_zju_s1s2 %>%
-      mutate(
-        data = "ZJU S1S2"
-      )
-  )
-
-all_acc %>%
+all_accs %>%
   mutate(
-    metric = ifelse(metric == "rank1", "Rank-1 Accuracy", "Rank-5 Accuracy")
+    metric = ifelse(metric == "rank1", "Rank-1", "Rank-5"),
+    data = case_when(
+      data == "zjus1" ~ "ZJU S1",
+      data == "zjus1s2" ~ "ZJU S1S2",
+      TRUE ~ data
+    )
   ) %>%
   ggplot(aes(x = s, y = value, col = model, linetype = model))+
-  geom_line(linewidth=.8, alpha=.9)+
+  geom_line(linewidth=.9, alpha=1)+
   theme_linedraw()+
-  theme(strip.text = element_text(size = 15),
+  theme(strip.text = element_text(size = 12),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 15),
         legend.position =  "bottom",
@@ -975,9 +890,9 @@ all_acc %>%
   scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "")+
   scale_linetype_manual(name = "", values = c("solid", "dashed", "longdash"), labels = c("Functional", "Logistic", "ML"))
 
-all_acc %>%
+all_accs %>%
   mutate(
-    metric = ifelse(metric == "rank1", "Rank-1 Accuracy", "Rank-5 Accuracy")
+    metric = ifelse(metric == "rank1", "Rank-1", "Rank-5")
   ) %>%
   ggplot(aes(x = s, y = value, col = model, shape = model))+
   geom_line(linewidth=.8, alpha=.9)+
@@ -994,4 +909,208 @@ all_acc %>%
        subtitle = "")+
   scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "")+
   scale_shape(name = "", labels = c("Functional", "Logistic", "ML"))
+
+# table 1 
+
+
+# summary of IU data 
+grid_data_lw_IU <- readRDS(here::here("data/grid_data_lw_IU.rds"))
+
+# split into training and testing
+# 75% train, 25% test, equal proportions for ea person 
+data_split <- split(grid_data_lw_IU, f = grid_data_lw_IU$ID)
+# function to sample percentage 
+samp <- function(pct, n, ind) {
+  set.seed(ind)
+  sample(n, floor(pct * n), replace = F)
+}
+ids <- unique(grid_data_lw_IU$ID)
+# number of rows for each individual 
+rows <- lapply(data_split, nrow) %>% unlist()
+# get random 75% of seconds for training 
+train_indices <- map2(pct = .75,
+                      .x = rows,
+                      .y = ids,
+                      .f = samp)
+
+getrows <- function(data, rows) {
+  data[rows, ]
+}
+getrows_test <- function(data, rows) {
+  data[-rows, ]
+}
+
+data_train <-
+  map2_dfr(.x = data_split, .y = train_indices, .f = getrows)
+data_test <-
+  map2_dfr(.x = data_split, .y = train_indices, .f = getrows_test)
+
+
+IU_summary <- 
+  data_train %>% 
+  group_by(ID) %>%
+  summarize(n_seconds = n()) %>%
+  mutate(
+    type = "train"
+  ) %>%
+  bind_rows(data_test %>%
+              group_by(ID) %>%
+              summarize(n_seconds = n()) %>%
+              mutate(
+                type = "test"
+              )) %>%
+  pivot_wider(names_from = type, values_from = n_seconds) %>%
+  ungroup() %>%
+  summarize(
+    n_test = sum(test),
+    n_train = sum(train),
+    avg_test = median(test),
+    avg_train = median(train),
+    iqr_test = IQR(test),
+    iqr_train = IQR(train)) %>%
+  mutate(data = "IU")
+
+# summary of zju data 
+grid_data_rw_zju_s1 <- readRDS(here::here("data/grid_data_rw_zju_s1.rds")) %>%
+  mutate(ID = ID - 22)
+grid_data_rw_zju_s2 <- readRDS(here::here("data/grid_data_rw_zju_s2.rds")) %>%
+  mutate(ID = ID - 22)
+
+data_split <- split(grid_data_rw_zju_s1, f = grid_data_rw_zju_s1$ID)
+# function to sample percentage 
+
+ids <- unique(grid_data_rw_zju_s1$ID)
+# number of rows for each individual 
+rows <- lapply(data_split, nrow) %>% unlist()
+# get random 75% of seconds for training 
+train_indices <- map2(pct = .75,
+                      .x = rows,
+                      .y = ids,
+                      .f = samp)
+data_train <-
+  map2_dfr(.x = data_split, .y = train_indices, .f = getrows)
+data_test <-
+  map2_dfr(.x = data_split, .y = train_indices, .f = getrows_test)
+
+
+zju1_summary <- 
+  data_test %>% 
+  group_by(ID) %>%
+  summarize(n_seconds = n()) %>%
+  mutate(
+    type = "test"
+  ) %>%
+  bind_rows(data_train %>%
+              group_by(ID) %>%
+              summarize(n_seconds = n()) %>%
+              mutate(
+                type = "train"
+              )) %>%
+  pivot_wider(names_from = type, values_from = n_seconds) %>%
+  ungroup() %>%
+  summarize(
+    n_test = sum(test),
+    n_train = sum(train),
+    avg_test = median(test),
+    avg_train = median(train),
+    iqr_test = IQR(test),
+    iqr_train = IQR(train)) %>%
+  mutate(data = "zjus1")
+
+
+data_train <- grid_data_rw_zju_s1
+data_test <- grid_data_rw_zju_s2
+
+
+
+zju12_summary <- 
+  data_test %>% 
+  group_by(ID) %>%
+  summarize(n_seconds = n()) %>%
+  mutate(
+    type = "test"
+  ) %>%
+  bind_rows(data_train %>%
+              group_by(ID) %>%
+              summarize(n_seconds = n()) %>%
+              mutate(
+                type = "train"
+              )) %>%
+  pivot_wider(names_from = type, values_from = n_seconds) %>%
+  ungroup() %>%
+  summarize(
+    n_test = sum(test),
+    n_train = sum(train),
+    avg_test = median(test),
+    avg_train = median(train),
+    iqr_test = IQR(test),
+    iqr_train = IQR(train)) %>%
+  mutate(data = "zjus1s2")
+
+
+table <- 
+  bind_rows(IU_summary, zju1_summary, zju12_summary) %>%
+  dplyr::select(data,  avg_train, avg_test, iqr_train, iqr_test)
+
+table %>%
+  kbl(caption="Summary of Minutes Used for Training and Testing",
+      format="latex",
+      col.names = c("Data",  "Median Seconds Training", 
+                    "Median Seconds Testing", "IQR Training", "IQR Testing"),
+      align="l") %>%
+  kable_minimal(full_width = F,  html_font = "Source Sans Pro")
+
+# table 2
+predictions_filenames <- list.files(here::here("predictions"))
+predictions_filenames <- predictions_filenames[grep("predictions", predictions_filenames)]
+
+get_summary <- function(filename){
+  tmp <- readRDS(here::here(paste0("predictions/", filename)))
+  data <- sub("_.*", "", sub("predictions.rds.*", "", filename))
+  method <- str_remove_all(str_extract(filename, "_(.+)_"), "_")
+  tmp %<>%
+    group_by(true_subject) %>%
+    mutate(
+      sec = row_number()) %>%
+    pivot_longer(cols = -c("true_subject", "sec")) %>%
+    mutate(
+      model = as.numeric(sub(".*x", "", name))) %>%
+    rename(pred = value) %>%
+    ungroup() %>%
+    group_by(true_subject, model) %>%
+    summarize(
+      mean_pred = mean(pred, na.rm = TRUE)) %>%
+    group_by(true_subject) %>%
+    mutate(
+      rank = rank(-mean_pred)
+    ) %>% 
+    filter(model==true_subject) %>%
+    mutate(
+      rank1 = ifelse(rank == 1, 1, 0),
+      rank5 = ifelse(rank <= 5, 1, 0)
+    )
+  return(data.frame(data = data,
+                    method = method,
+                    accr1 = sum(tmp$rank1)/nrow(tmp), 
+                    accr5 = sum(tmp$rank5)/nrow(tmp),
+                    r1 = sum(tmp$rank1), 
+                    r5 = sum(tmp$rank5),
+                    total = nrow(tmp)))
+}
+
+result_summary <-
+  map(.x = predictions_filenames,
+      .f = get_summary) %>%
+  list_rbind()
+
+# make nice table for paper 
+result_summary %>%
+  filter(data != "zjus2" & data!= "zjuall") %>%
+  mutate(across(3:4, ~round(.x, 2))) %>%
+  kbl(caption="Summary of Accuracy",
+      format="latex",
+      col.names = c("Data and Task", "Model", "R1 Accuracy", "R5 Accuracy", 
+                    "Rank 1 Correct", "Rank 5 Correct", "Total"),
+      align="l") %>%
+  kable_minimal(full_width = F,  html_font = "Source Sans Pro")
   
