@@ -8,7 +8,7 @@ This repo contains code to fit three varieties of "fingerprinting" models on two
 
 ## Workflow
 
-All code is in the `R` folder
+All code is in the `R` folder. Below are the specific files for each step of the data process and the workflow consists of running each of the files in the order below. All of the code in order is also `all_code.R`; this file can be run instead of running each of the separate files below. 
 
 ### Downloading data
 
