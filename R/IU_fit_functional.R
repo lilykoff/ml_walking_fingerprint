@@ -230,22 +230,3 @@ stats_fnl <-
           predictions = preds) %>%
   mutate(model = "functional")
 
-
-stats_fnl %>%
-  ggplot(aes(x = s, y = value, col = model)) +
-  geom_line() +
-  theme_light() +
-  facet_wrap(. ~ metric, nrow = 2) +
-  labs(
-    x = "Number of Seconds",
-    y = "Estimate",
-    title = "Classification Metrics",
-    subtitle = "Averaged over Varying Number of Seconds"
-  ) +
-  scale_x_continuous(breaks = c(1, 2, 5, 10, 15, 20, 25, 30, 35, 50, 60, 70, 80, 90, 100)) +
-  theme(axis.text.x = element_text(angle = 45, size = 4)) +
-  scale_color_brewer(
-    palette = "Dark2",
-    labels = c("Functional", "Logistic", "ML"),
-    name = "Model"
-  )
