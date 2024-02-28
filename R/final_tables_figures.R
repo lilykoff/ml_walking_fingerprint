@@ -6,7 +6,7 @@ expit <- function(x) 1/(1+exp(-x))
 library(kableExtra)
 
 ### figure 1:  problem illustration
-df_all_zju <- read_csv("df_all_zju.csv",
+df_all_zju <- read_csv("data/df_all_zju.csv",
                        col_types = cols(...1 = col_skip())) %>%
   filter(session == "session_1") %>%
   mutate(ID = ID - 22)
@@ -63,8 +63,8 @@ ggpubr::ggarrange(g3, g4, common.legend = T, legend = "none")
 
 ## figure 2
 
-grid_data_lw_IU <- readRDS("~/Documents/ml_walking_fingerprint/grid_data_lw_IU.rds")
-df_all_IU <- read_csv("/Users/lilykoffman/Documents/ml_walking_fingerprint/df_all_IU.csv", 
+grid_data_lw_IU <- readRDS("~/Documents/ml_walking_fingerprint/data/grid_data_lw_IU.rds")
+df_all_IU <- read_csv("/Users/lilykoffman/Documents/ml_walking_fingerprint/data/df_all_IU.csv", 
                       col_types = cols(...1 = col_skip())) %>%
   rename(ID = ID2,
          signal_lwrist = signal_lw,
@@ -106,6 +106,20 @@ df %>%
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 15))+
   labs(x = latex2exp::TeX(r'(Acceleration at \it{$v(s-u)$} (g))'), y = latex2exp::TeX(r'(Acceleration at \it{$v(s)$} (g))'), title = "")
+
+
+df %>%
+  filter(lag == 15, second == 2) %>%
+  ggplot(aes(x = lagsig, y = signal_lwrist))+
+  scale_x_continuous(limits=c(0.75, 1.25), breaks = seq(0.75, 1.25, .25))+
+  scale_y_continuous(limits=c(0.75, 1.25), breaks = seq(0.75, 1.25, .25))+
+  geom_point(size = 2)+
+  theme_linedraw()+
+  theme(strip.text = element_text(face = "italic", size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15))+
+  labs(x ="Lag 0.15s Acceleration",
+       y = "Acceleration", title = "")
 
 # figure 3 
 df <- 
@@ -162,6 +176,37 @@ p2 +
   geom_label(data = gc_dat, 
              aes(x = lagsig + 0.125, y = signal_lwrist + 0.125, label = n),
              col = "white", alpha = 0.8, size = 5)
+
+p1 <- 
+  ggplot(data = gc_dat %>% 
+           filter(second == 2, lag == 15), aes(xmin  = lagsig, xmax = max_x,
+                            ymin = signal_lwrist, ymax = max_y,
+                            fill = n))+
+  scale_fill_viridis(name = latex2exp::TeX(r'($X_{ijg}$)'))+
+  geom_rect(alpha = 0.9)+
+  theme_classic()
+
+
+p2 <- 
+  p1 + 
+  geom_point(data = df %>% filter(second == 2, lag == 15), aes(x = lagsig, y = signal_lwrist), size = 2, fill = "black")+
+  labs(x ="Lag 0.15s Acceleration",
+       y = "Acceleration", title = "")+
+  scale_x_continuous(limits = c(0.75, 1.5), breaks=seq(.75, 1.5, .25))+
+  scale_y_continuous(limits = c(0.75,1.5), breaks=seq(.75, 1.5, .25))+
+  geom_hline(yintercept = c(.75, 1, 1.25, 1.5), col = "black")+
+  geom_vline(xintercept = c(.75, 1, 1.25, 1.5), col = "black")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face = "italic", size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15))
+
+p2 + 
+  geom_label(data =  gc_dat %>% 
+           filter(second == 2, lag == 15), 
+             aes(x = lagsig + 0.125, y = signal_lwrist + 0.125, label = n),
+             col = "white", alpha = 0.8, size = 5)
+
 
 ## figure 5 
 

@@ -1,0 +1,1405 @@
+---
+title: "Fingerprinting Walking using High Density Accelerometer Data"
+subtitle: "ENAR 2024"
+execute: 
+  echo: false
+  cache: true
+  warning: false
+  message: false
+  eval: true
+format: 
+  beamer: 
+    theme: Copenhagen
+    colortheme: lily
+    includes: 
+      in_header: "preamble.tex"
+author: "Lily Koffman"
+
+---
+
+```{r}
+#| include: false
+
+# load all packages 
+library(here)
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(walking)
+library(SummarizedActigraphy)
+library(paletteer)
+library(tidymodels)
+
+
+# load IU data 
+df_IU = readr::read_csv(here::here("presentations/data/df_all_IU.csv"))
+
+
+# define color palette 
+col1 = "#21B087"
+col2 = "#F89217"
+col3 = "#7873C0"
+col4 = "#F64971"
+
+
+```
+
+
+## The Problem: Can We Identify an Individual From Their Walking?
+
+
+```{r}
+theme_set(theme_classic())
+supp.labs <- c("Subject 2", "Subject 21", "Subject 29")
+names(supp.labs) <- c(2, 21, 29)
+g3 <- df_IU %>% filter(ID2 %in% c(2, 21, 29) &
+                         second > 3 &
+                         second <= 6) %>% dplyr::select(signal_lw, time, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, color = as.factor(ID2))) +
+  facet_wrap(. ~ ID2,
+             nrow = 3,
+             labeller =
+               labeller(ID2 = supp.labs)) +
+  geom_line(linewidth = 1.1) +
+  # scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  scale_color_manual(values = c("#8CC2CAFF", "#55AD89FF", "#BB7693FF"))+
+  theme(legend.position = "none") +
+  scale_y_continuous(limits = c(0, 3),  breaks = seq(0, 3, 1)) +
+  labs(x = "Time (seconds)", y = "Magnitude of Acceleration (g)") +
+  theme(
+    axis.title = element_text(size = 15),
+    strip.text = element_text(size = 12),
+    axis.text  = element_text(size = 12)
+  )
+
+supp.labs <- c("Subject ?", "Subject ?", "Subject ?")
+names(supp.labs) <- c(21, 22, 30)
+
+g4 <- df_IU %>% filter(ID2 %in% c(21, 22, 30) &
+                         time <= 13 &
+                         time > 10) %>% dplyr::select(signal_lw, time, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, col = as.factor(ID2))) +
+  facet_wrap(. ~ ID2,
+             nrow = 3,
+             labeller =
+               labeller(ID2 = supp.labs)) +
+  geom_line(linewidth = 1.1) +
+  # scale_color_paletteer_d("ggthemes::Superfishel_Stone", direction = -1) +
+    scale_color_manual(values = c("#BAA094FF", "#C3BC3FFF", "#767676FF"))+
+  theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(0, 3), breaks = seq(0, 3, 1)) +
+  labs(x = "Time (seconds)", y = "") +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 12),
+    title = element_text(size = 15)
+  )
+
+ggpubr::ggarrange(g3, g4, legend = "none")
+
+```
+
+## Why Do We Care?
+. . . 
+
+::: {layout-nrow=2}
+
+![](figs/ClinicalTrial2.jpeg){width=1.25in}
+
+![](figs/fall.png){width=1.25in}
+
+![](figs/heart.jpg){width=1.25in}
+
+![](figs/fign.jpg){width=1.25in}
+:::
+
+## Approach
+
+
+```{=tex}
+\begin{itemize}
+\item Obtain the empirical joint distribution of acceleration, and lag acceleration for all possible lags (which can be represented as a series of images)
+```
+. . .
+
+```{=tex}
+\begin{itemize}
+\item \textbf{Image partitioning}: compute summaries of the joint distribution, use summaries to predict identity
+```
+. . .
+
+```{=tex}
+\item \textbf{Functional regression}: use joint distribution in trivariate functional regression to predict identity
+\end{itemize}
+\end{itemize}
+
+````
+
+------------------------------------------------------------------------
+
+### Obtaining the joint distribution: segment the data
+
+
+```{r}
+df_IU %>% filter(ID2 == 29 &
+       second <= 10) %>% dplyr::select(signal_lw, time, second, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, col = as.factor(second))) +
+  geom_line(linewidth = 1.1) + 
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  theme(legend.position = "bottom") +
+  labs(x = "Time (seconds)", y = "Acceleration (g)") + theme_classic() + scale_x_continuous(breaks = seq(0, 10, 1)) +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 15),
+    title = element_text(size = 16)
+  ) 
+```
+
+-----
+
+### Obtaining the joint distribution: segment the data 
+
+```{r}
+df_IU %>% filter(ID2 == 29 &
+       second <= 10) %>% dplyr::select(signal_lw, time, second, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, col = as.factor(second))) +
+  geom_line(linewidth = 1.1) + 
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  theme(legend.position = "bottom") +
+  labs(x = "Time (seconds)", y = "Acceleration (g)") + theme_classic() + scale_x_continuous(breaks = seq(0, 10, 1)) +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 15),
+    title = element_text(size = 16)
+  ) +
+  geom_vline(aes(xintercept = 1), col = "black") +
+  geom_vline(aes(xintercept = 2), col = "black") +
+  geom_vline(aes(xintercept = 3), col = "black") +
+  geom_vline(aes(xintercept = 4), col = "black") +
+  geom_vline(aes(xintercept = 5), col = "black") +
+  geom_vline(aes(xintercept = 6), col = "black") +
+  geom_vline(aes(xintercept = 7), col = "black") +
+  geom_vline(aes(xintercept = 8), col = "black") +
+  geom_vline(aes(xintercept = 9), col = "black") +
+  geom_vline(aes(xintercept = 10), col = "black")
+
+```
+
+----
+
+### Obtaining the joint distribution: examine acceleration, lag acceleration for each segment and lag 
+
+```{r}
+supp.labs <- c("Lag: 0.01 s", "Lag: 0.15s", "Lag: 0.30s")
+names(supp.labs) <- c("lag1", "lag15", "lag30")
+sub.labs <- c("Subject 2", "Subject 21")
+names(sub.labs) <- c(2, 21)
+# 
+# df_IU %>%
+#   filter(ID2 %in% c(2, 21)  &
+#            second == 3) %>%
+#   dplyr::select(ID2, signal_lw, time) %>%
+#   group_by(ID2) %>%
+#   mutate(
+#     lag15 = lag(signal_lw, 15),
+#     lag30 = lag(signal_lw, 30),
+#     lag45 = lag(signal_lw, 45)
+#   ) %>% pivot_longer(cols = 4:6) %>%
+#   ggplot(aes(x = time, color = name)) +
+#   geom_line(aes(y = signal_lw), linewidth = 1) +
+#   geom_line(aes(y = value), linetype = 2, linewidth = 1) +
+#   facet_grid(ID2 ~ name, labeller = labeller(name = supp.labs,
+#                                              ID2 = sub.labs)) + scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+#   labs(x = "Time (seconds)", y = "Magnitude of Acceleration (g)", title = "Acceleration and Lag Acceleration for One Second") +
+#   theme_bw()+
+#   theme(
+#     legend.position = "none",
+#     axis.title = element_text(size = 15),
+#     title = element_text(size = 15),
+#     strip.text = element_text(size = 12),
+#     axis.text  = element_text(size = 12)
+#   )
+
+
+df_IU %>%
+  filter(ID2 %in% c(29)  &
+           second == 3) %>%
+  dplyr::select(ID2, signal_lw, time) %>%
+  group_by(ID2) %>%
+  mutate(
+    lag1 = lag(signal_lw, 1),
+    lag30 = lag(signal_lw, 30),
+    lag15 = lag(signal_lw, 41)
+  ) %>% pivot_longer(cols = 4:6) %>%
+  ggplot(aes(x = time, color = name)) +
+  geom_line(aes(y = signal_lw), linewidth = 1) +
+  geom_line(aes(y = value), linetype = 2, linewidth = 1) +
+  facet_grid(. ~ name, labeller = labeller(name = supp.labs)) + scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  labs(x = "Time (seconds)", y = "Magnitude of Acceleration (g)") +
+  theme_bw()+
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 15),
+    title = element_text(size = 15),
+    strip.text = element_text(size = 12),
+    axis.text  = element_text(size = 12)
+  )+
+  scale_x_continuous(labels= seq(0, 1, 0.25))
+```
+
+-------
+
+### Obtaining the joint distribution: examine acceleration, lag acceleration for each segment and lag 
+
+
+```{r}
+dat <-
+  df_IU %>% filter(ID2 == 29 &
+                     second == 3) %>% 
+  dplyr::select(signal_lw, time) %>%
+  mutate(lag15 = lag(signal_lw, 15)) %>% 
+  pivot_longer(cols = -time) %>%
+  mutate(Type = ifelse(name == "lag15", "Lagged Acceleration", "Acceleration"))
+
+p <-
+  ggplot(dat, aes(
+    x = time,
+    y = value,
+    linetype = Type,
+    color = Type
+  )) + geom_line(color = "#FFAE34FF") + 
+  scale_color_paletteer_d("ggthemes::Hue_Circle") + 
+  labs(
+    x = "Time (seconds)",
+    y = "Acceleration (g)",
+    title = "Subject 2",
+    subtitle = "Point pairs: lag of 0.15 seconds"
+  ) + theme(legend.position =  "bottom",
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 12),
+    title = element_text(size = 15),
+    plot.subtitle = element_text(size = 12)
+  )
+
+p2 = p + geom_point(size = .9) +
+  ggrepel::geom_label_repel(
+    data = subset(dat, time %in% c(2.25, 2.75) &
+                    Type == "Acceleration"),
+    aes(time, value, label = paste("Acceleration:", round(value, 2))),
+    box.padding = .5,
+    max.overlaps = Inf,
+    inherit.aes = F,
+    segment.angle = 30,
+    size = 4
+  ) +
+  ggrepel::geom_label_repel(
+    data = subset(dat, time %in% c(2.25, 2.75) &
+                    Type == "Lagged Acceleration"),
+    aes(time, value, label = paste("Lag Acceleration:", round(value, 2))),
+    box.padding = .5,
+    max.overlaps = Inf,
+    inherit.aes = F,
+    segment.angle = 30,
+    size = 4
+  ) + geom_vline(
+    aes(xintercept = 2.25),
+    col = "black",
+    alpha = .7,
+    linetype = 3
+  ) +
+  geom_vline(
+    aes(xintercept = 2.75),
+    col = "black",
+    alpha = .7,
+    linetype = 3
+  )
+
+
+dat <-
+  df_IU %>% filter(ID2 == 29 &
+                     second == 3) %>% dplyr::select(signal_lw, time) %>%
+  mutate(lag15 = lag(signal_lw, 15)) %>% pivot_longer(cols = -time) %>%
+  mutate(Type = ifelse(name == "lag15", "Lagged Acceleration", "Acceleration"))
+
+p <-
+  ggplot(dat, aes(
+    x = time,
+    y = value,
+    linetype = Type
+  )) + geom_line(color = "#FFAE34FF", linewidth = 1.1) + 
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone")  +
+  labs(
+    x = "Time (seconds)",
+    y = "Acceleration (g)",
+    title = "Acceleration, Lag Acceleration Pairs (85 total)",
+    subtitle = "Point pairs: lag of 0.15 seconds"
+  ) + theme_bw() + 
+  theme(legend.position = "bottom", 
+            axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 12),
+    title = element_text(size = 15),
+    plot.subtitle = element_text(size = 12))+
+  scale_x_continuous(labels = seq(0, 1, 0.25))
+
+p3 = p + geom_point(size = .9, color = "#767676FF") +
+  ggrepel::geom_label_repel(
+    data = subset(dat, time %in% c(2.25, 2.75) &
+                    Type == "Acceleration"),
+    aes(time, value, label = paste("Acceleration:", round(value, 2))),
+    box.padding = .5,
+    max.overlaps = Inf,
+    inherit.aes = F,
+    segment.angle = 30,
+    size = 4
+  ) +
+  ggrepel::geom_label_repel(
+    data = subset(dat, time %in% c(2.25, 2.75) &
+                    Type == "Lagged Acceleration"),
+    aes(time, value, label = paste("Lag Acceleration:", round(value, 2))),
+    box.padding = .5,
+    max.overlaps = Inf,
+    inherit.aes = F,
+    segment.angle = 90,
+    size = 4
+  ) + geom_vline(
+    aes(xintercept = 2.25),
+    col = "black",
+    alpha = .7,
+    linetype = 3
+  ) +
+  geom_vline(
+    aes(xintercept = 2.75),
+    col = "black",
+    alpha = .7,
+    linetype = 3
+  )
+
+# ggpubr::ggarrange(p2, p3, common.legend = TRUE, nrow = 2)
+p3
+
+```
+
+----
+
+### Obtaining the joint distribution: examine acceleration, lag acceleration for each segment and lag 
+
+
+```{r}
+
+df_IU %>% 
+  filter(ID2 %in% c(29) & second == 3) %>%
+  dplyr::select(ID2, signal_lw, time) %>%
+  mutate(
+    lag15 = lag(signal_lw, 15),
+    lag30 = lag(signal_lw, 30),
+    lag1 = lag(signal_lw, 1)
+  ) %>% 
+  pivot_longer(cols = 4:6) %>% 
+  ggplot(aes(x = signal_lw, y = value, col = name)) +
+  geom_point() + 
+  facet_grid(. ~ name, labeller = labeller(name = supp.labs)) +
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  labs(
+    x = "Acceleration (g)",
+    y = "Lag Acceleration (g)",
+    title = "Acceleration and Lag Acceleration Pairs"  ) + 
+  theme_bw() + 
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 12),
+    title = element_text(size = 15),
+    strip.text = element_text(size = 12), 
+    plot.subtitle = element_text(size = 12)
+  ) + 
+  scale_x_continuous(limits = c(0, 3)) +
+  scale_y_continuous(limits = c(0, 3))
+
+```
+
+-----
+
+### Obtaining the joint distribution: examine acceleration, lag acceleration for each segment and lag 
+
+
+```{r}
+sec.labs = c("Second 1", "Second 2")
+names(sec.labs) = c(3, 4)
+df_IU %>% 
+  filter(ID2 %in% c(29) & second %in% 3:4) %>%
+  dplyr::select(ID2, signal_lw, time, second) %>%
+  group_by(second) %>% 
+  mutate(
+    lag15 = lag(signal_lw, 15),
+    lag30 = lag(signal_lw, 30),
+    lag1 = lag(signal_lw, 1)
+  ) %>% 
+  pivot_longer(cols = starts_with("lag")) %>% 
+  ggplot(aes(x = signal_lw, y = value, col = name)) +
+  geom_point() + 
+  facet_grid(second ~ name, labeller = labeller(name = supp.labs, second = sec.labs)) +
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  labs(
+    x = "Acceleration (g)",
+    y = "Lag Acceleration (g)",
+    title = "Acceleration and Lag Acceleration Pairs"
+  ) + 
+  theme_bw() + 
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 12),
+    title = element_text(size = 15),
+    strip.text = element_text(size = 12), 
+    plot.subtitle = element_text(size = 12)
+  ) + 
+  scale_x_continuous(limits = c(0, 3)) +
+  scale_y_continuous(limits = c(0, 3))
+
+```
+
+
+----
+
+### Image partitioning: partition grid into 2D cells 
+
+```{r}
+supp.labs <- c("Lag 0.01s", "Lag: 0.15s", "Lag: 0.30s")
+names(supp.labs) <- c("lag1", "lag15", "lag30")
+
+df_IU %>% 
+  filter(ID2 %in% c(29) & second == 3) %>%
+  dplyr::select(ID2, signal_lw, time) %>%
+  mutate(lag1 = lag(signal_lw, 1),
+          lag15 = lag(signal_lw, 15),
+         lag30 = lag(signal_lw, 30)) %>% 
+  pivot_longer(cols = starts_with("lag")) %>%
+  ggplot(aes(x = signal_lw, y = value, col = name)) +
+  geom_point() + 
+  facet_grid(. ~ name, labeller = labeller(name = supp.labs)) +
+  scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  theme_minimal()+
+  labs(
+    x = "Acceleration (g)",
+    y = "Lag Acceleration (g)"
+    # title = "Partition into 2D Cells; Count Points in Cells"
+  ) + 
+  theme(
+    legend.position = "none",
+    panel.grid.major = element_line(color = "darkgrey", linewidth = .25),
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(size = 15),
+    axis.text.x = element_text(size = 10, angle = 30),
+    axis.text.y = element_text(size = 10),
+    title = element_text(size = 15),
+    plot.subtitle = element_text(size = 14),
+    strip.text = element_text(size = 12)
+  ) + 
+  scale_x_continuous(limits = c(0, 3), breaks = seq(0, 3, .25)) +
+  scale_y_continuous(limits = c(0, 3), breaks = seq(0, 3, .25))
+
+
+```
+
+----
+
+### Image partitioning: partition grid into 2D cells: count points in each cell 
+
+```{r}
+
+df <-
+  df_IU %>%
+  filter(second == 3 &
+           ID2 %in% c(29)) %>%
+  dplyr::select(ID2, time, signal_lw) %>%
+  mutate(lag_signal = lag(signal_lw, n = 15),
+         lag = "lag15") %>%
+  drop_na() %>%
+  bind_rows(
+    df_IU %>% filter(second == 3 &
+                       ID2 %in% c(29)) %>%
+      dplyr::select(ID2, time, signal_lw) %>%
+      mutate(lag_signal = lag(signal_lw, n = 30),
+             lag = "lag30") %>% drop_na()
+  ) %>% 
+  bind_rows(
+    df_IU %>% filter(second == 3 &
+                       ID2 %in% c(29)) %>%
+      dplyr::select(ID2, time, signal_lw) %>%
+      mutate(lag_signal = lag(signal_lw, n = 1),
+             lag = "lag1") %>% drop_na()
+  )
+
+count <-
+  df %>% 
+  group_by(ID2, lag) %>% 
+  mutate(
+    cut_s = cut(
+      signal_lw,
+      breaks = seq(0, 3, by = 0.25),
+      include.lowest = T
+    ),
+    cut_u = cut(
+      lag_signal,
+      breaks = seq(0, 3, by = 0.25),
+      include.lowest = T
+    )
+  ) %>%
+  drop_na() %>%
+  count(cut_s, cut_u, .drop = FALSE)
+
+# colored grids
+ggplot(data = count, aes(x = cut_s, y = cut_u)) +
+  geom_tile(aes(fill = n), color = "grey", size = 0.3) +
+  facet_grid(. ~ lag, 
+             labeller = labeller(ID2 = sub.labs, 
+                                 lag = supp.labs)) +
+  labs(
+    x = "Acceleration (g)",
+    y = "Lag Acceleraton (g)",
+    fill = "Number of Observations"
+    # title = "Predictors: Number of Points in Each Grid Cell"
+  ) +
+  geom_text(aes(label = n), color = "white", size = 3) + theme_minimal() +
+  scale_fill_gradientn(
+    colors = c("white","#443A83", "#27AD81", "#FDE333"),
+values = c(0, 0.0001, 0.5, 1)
+) + 
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(size = 10, angle = 30),
+        axis.title = element_text(size =
+                                    15),
+        axis.text.y =element_text(size = 10),
+        title = element_text(size = 15),
+        plot.subtitle = element_text(size = 14),
+        strip.text = element_text(size = 12),
+        legend.text = element_text(size = 12)
+  )
+
+```
+
+---
+
+### Image partitioning: partition grid into 2D cells: count points in each cell 
+
+
+```{r}
+sec.labs = c("Second 1", "Second 2")
+names(sec.labs) = c(3, 4)
+df <-
+  df_IU %>%
+  filter(second %in% 3:4 &
+           ID2 %in% c(29)) %>%
+  dplyr::select(ID2, time, signal_lw, second) %>%
+  mutate(lag_signal = lag(signal_lw, n = 15),
+         lag = "lag15") %>%
+  drop_na() %>%
+  bind_rows(
+    df_IU %>% filter(second %in% 3:4 &
+                       ID2 %in% c(29)) %>%
+      dplyr::select(ID2, time, signal_lw, second) %>%
+      mutate(lag_signal = lag(signal_lw, n = 30),
+             lag = "lag30") %>% drop_na()
+  ) %>% 
+  bind_rows(
+    df_IU %>% filter(second %in% 3:4 &
+                       ID2 %in% c(29)) %>%
+      dplyr::select(ID2, time, signal_lw, second) %>%
+      mutate(lag_signal = lag(signal_lw, n = 1),
+             lag = "lag1") %>% drop_na()
+  )
+
+count <-
+  df %>% 
+  group_by(ID2, lag, second) %>% 
+  mutate(
+    cut_s = cut(
+      signal_lw,
+      breaks = seq(0, 3, by = 0.25),
+      include.lowest = T
+    ),
+    cut_u = cut(
+      lag_signal,
+      breaks = seq(0, 3, by = 0.25),
+      include.lowest = T
+    )
+  ) %>%
+  drop_na() %>%
+  count(cut_s, cut_u, .drop = FALSE)
+
+# colored grids
+ggplot(data = count, aes(x = cut_s, y = cut_u)) +
+  geom_tile(aes(fill = n), color = "grey", size = 0.3) +
+  facet_grid(second ~ lag, 
+             labeller = labeller(second = sec.labs, 
+                                 lag = supp.labs)) +
+  labs(
+    x = "Acceleration (g)",
+    y = "Lag Acceleraton (g)",
+    fill = "Number of Observations"
+    # title = "Predictors: Number of Points in Each Grid Cell"
+  ) +
+  geom_text(aes(label = n), color = "white", size = 3) + 
+  theme_minimal() +
+  scale_fill_gradientn(
+    colors = c("white","#443A83", "#27AD81", "#FDE333"),
+values = c(0, 0.0001, 0.5, 1)
+) + 
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(size = 10, angle = 30),
+        axis.title = element_text(size =
+                                    15),
+        axis.text.y =element_text(size = 10),
+        title = element_text(size = 15),
+        plot.subtitle = element_text(size = 14),
+        strip.text = element_text(size = 12),
+        legend.text = element_text(size = 12)
+  )
+
+```
+
+---
+
+### Image partitioning: partition grid into 2D cells: select predictors from grid cells  
+
+```{=tex}
+\begin{itemize}
+\item We have 144 cells for each lag and 99 possible lags -- too many predictors! 
+```
+
+. . . 
+
+```{=tex}
+\item Exploratory analyses indicated three lags (0.15, 0.30, 0.45s) performed well
+```
+
+. . . 
+```{=tex}
+\item $144*3$ potential predictors 
+```
+
+. . . 
+
+```{=tex}
+\item Remove predictors with near zero variance or few unique values 
+\end{itemize}
+```
+
+----
+
+### Image partitioning: partition grid into 2D cells: fit models
+
+```{=tex}
+\begin{itemize}
+\item We have transformed abstract problem into well-defined classification problem
+```
+
+. . . 
+
+\item Model: 
+$$ Y_{ij}^{i_0} | X_{ij1}, \dots, X_{ijG} $$ 
+Where $X_{ijg}$ is number of acceleration, lag acceleration pairs for subject $i$ in grid cell $g$ at second $j$, $Y_{ij}^{i_0} = 1$  if subject $i = i_0$, and 0 otherwise 
+
+. . . 
+
+\item Use one vs. rest classification (separate model for each individual)
+
+. . . 
+
+\item Machine learning using \texttt{tidymodels}; logistic regression 
+. . . 
+
+```{=tex}
+\item For logistic regression models, use correlation and multiplicity adjusted (CMA) confidence intervals for coefficients to identify grid cells that are most predictive of identity 
+\end{itemize}
+```
+
+---
+
+## Functional regression 
+
+```{=tex}
+\begin{itemize}
+\item Instead of summarizing joint distribution, use functional regression of the form: 
+$${\rm logit}\{p_{ij}^{i_0}\}= \int_{s,u} F\{v_{ij}(s-u),v_{ij}(s),u\}dsdu$$
+Where $Y_{ij}^{i_0} \sim \text{Bernoulli}(p_{ij}^{i_0})$,  $u = 1, \dots, S-1 = 99$, $s= u +1, \dots, S = 100$, $v_{ij}(s-u)$ is acceleration for subject $i$, second $j$, at $s-u$ and $v_{ij}(s)$ is acceleration for subject $i$, second $j$, at $s$.
+```
+
+. . . 
+
+\item $F(\cdot, \cdot, \cdot)$ takes values at every point in domain of 3D images (acceleration, lag acceleration, and lag) 
+
+. . . 
+
+```{=tex}
+\item Implement model using \texttt{mgcv::gam} after manipulating empirical joint distribution into matrices of acceleration, lag acceleration, and lag 
+\end{itemize}
+```
+
+---
+
+## Application
+
+```{=tex}
+\begin{itemize}
+\item Two datasets: 
+\begin{itemize}
+\item Indiana Unversity (IU): 32 subjects, 8 min walking per subject
+\item Zhejiang University (ZJU): 153 subjects, two trials at least one week and up to six months apart, 1 min walking per subject
+\newline 
+Use for two tasks: within session prediction (train on 75\% of seconds in session 1, predict on other 25\%)
+\newline 
+Out of session prediction: train on session 1, predict on session 2
+\end{itemize}
+\end{itemize}
+```
+
+
+ 
+--- 
+
+## Results: Accuracies over Varying Amount of Testing Data 
+  
+```{r}
+
+
+## accuracies figure 
+get_accuracies <- function(predictions, seconds){
+  tmp <- 
+    predictions %>%
+    group_by(true_subject) %>% 
+    mutate(
+      sec = floor(row_number()/seconds)) %>% 
+    pivot_longer(cols = -c("true_subject", "sec")) %>%
+    mutate(
+      model = as.numeric(sub(".*x", "", name))) %>%
+    rename(pred = value) %>%
+    ungroup() %>%
+    group_by(true_subject, model, sec) %>%
+    summarize(
+      mean_pred = mean(pred, na.rm = TRUE)) %>%
+    group_by(true_subject, sec) %>%
+    mutate(
+      rank = rank(-mean_pred)
+    ) %>% 
+    filter(model==true_subject) %>%
+    mutate(
+      rank1 = ifelse(rank == 1, 1, 0),
+      rank5 = ifelse(rank <= 5, 1, 0)
+    )
+  n = nrow(tmp)
+  r1 = sum(tmp$rank1)/n
+  r5 = sum(tmp$rank5)/n
+  return(data.frame(metric = c("rank1", "rank5"),
+                    value = c(r1, r5),
+                    s = c(seconds, seconds)))
+  
+}
+
+
+secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_ml_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "ml",
+    data = "IU"
+  )
+
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "logistic",
+    data = "IU"
+  )
+
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/IU_func_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "functional",
+    data = "IU"
+  )
+
+accs_IU <-
+  bind_rows(stats_logistic, stats_ml, stats_func) 
+
+secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_ml_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "ml",
+    data = "zjus1"
+  )
+
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "logistic",
+    data = "zjus1"
+  )
+
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1_func_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "functional",
+    data = "zjus1"
+  )
+
+accs_zjus1 <-
+  bind_rows(stats_logistic, stats_ml, stats_func) 
+
+
+secs <- c(1,2,5,10,15,20,25,30,35,50,60,70,80,90,100)
+stats_ml <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_ml_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "ml",
+    data = "zjus1s2"
+  )
+
+stats_logistic <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_logistic_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "logistic",
+    data = "zjus1s2"
+  )
+
+stats_func <- 
+  map(.x = secs,
+      .f = get_accuracies,
+      predictions = readRDS(here::here("predictions/zjus1s2_func_predictions.rds"))) %>%
+  list_rbind() %>%
+  mutate(
+    model = "functional",
+    data = "zjus1s2"
+  )
+
+accs_zjus1s2 <-
+  bind_rows(stats_logistic, stats_ml, stats_func) 
+
+
+all_accs <-
+  bind_rows(accs_IU, accs_zjus1, accs_zjus1s2)
+
+all_accs %>%
+  mutate(
+    metric = ifelse(metric == "rank1", "Rank-1", "Rank-5"),
+    data = case_when(
+      data == "zjus1" ~ "ZJU S1",
+      data == "zjus1s2" ~ "ZJU S1S2",
+      TRUE ~ data
+    )
+  ) %>%
+  ggplot(aes(x = s, y = value, col = model, linetype = model))+
+  geom_line(linewidth=.9, alpha=1)+
+  theme_bw()+
+  theme(strip.text = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 15),
+        legend.position =  "bottom",
+        legend.text = element_text(size = 12),
+        aspect.ratio = 1)+
+  facet_grid(metric~data)+
+  labs(x = "Number of Seconds", y = "Accuracy", title = "",
+       subtitle = "")+
+  scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "")+
+  scale_linetype_manual(name = "", values = c("solid", "dashed", "longdash"), labels = c("Functional", "Logistic", "ML"))
+
+# all_accs %>%
+#   mutate(
+#     metric = ifelse(metric == "rank1", "Rank-1", "Rank-5")
+#   ) %>%
+#   ggplot(aes(x = s, y = value, col = model, shape = model))+
+#   geom_line(linewidth=.8, alpha=.9)+
+#   geom_point()+
+#   theme_bw()+
+#   theme(strip.text = element_text(size = 15),
+#         axis.text = element_text(size = 10),
+#         axis.title = element_text(size = 15),
+#         legend.position =  "bottom",
+#         legend.text = element_text(size = 12),
+#         aspect.ratio = 1)+
+#   facet_grid(metric~data)+
+#   labs(x = "Number of Seconds", y = "Accuracy", title = "",
+#        subtitle = "")+
+#   scale_color_brewer(palette = "Dark2", labels = c("Functional", "Logistic", "ML"), name = "")+
+#   scale_shape(name = "", labels = c("Functional", "Logistic", "ML"))
+
+
+```
+
+
+
+## Inference 
+
+```{r}
+df_all_zju <- read_csv(here::here("data", "df_all_zju.csv"), 
+                       col_types = cols(...1 = col_skip())) %>%
+  mutate(ID = ID-22)
+df_all_zju <- read_csv(here::here("data", "df_all_zju.csv"), 
+                       col_types = cols(...1 = col_skip())) %>%
+  mutate(ID = ID-22)
+
+grid_data_rw_zju_s1 <- readRDS(here::here("data", "grid_data_rw_zju_s1.rds")) %>%
+  mutate(ID = ID - 22)
+grid_data_rw_zju_s2 <- readRDS(here::here("data", "grid_data_rw_zju_s2.rds")) %>%
+  mutate(ID = ID - 22)
+
+get_train_test <- function(pct, data){
+  data_split <- split(data, f = data$ID)
+  
+  samp <- function(pct, n, ind) {
+    set.seed(ind)
+    sample(n, floor(pct * n), replace = F)
+  }
+  ids <- unique(data$ID)
+  # number of rows for each individual 
+  rows <- lapply(data_split, nrow) %>% unlist()
+  # get random 75% of seconds for training 
+  train_indices <- map2(pct = pct,
+                        .x = rows,
+                        .y = ids,
+                        .f = samp)
+  
+  getrows <- function(data, rows) {
+    data[rows, ]
+  }
+  getrows_test <- function(data, rows) {
+    data[-rows, ]
+  }
+  
+  data_train <-
+    map2_dfr(.x = data_split, .y = train_indices, .f = getrows)
+  data_test <-
+    map2_dfr(.x = data_split, .y = train_indices, .f = getrows_test)
+  return(list(train = data_train, test = data_test))
+}
+
+data_train <- get_train_test(pct = .75, data = grid_data_rw_zju_s1)$train
+data_test <- get_train_test(pct = .75, data = grid_data_rw_zju_s1)$test
+
+
+raw_data <- df_all_zju
+sub <- 143
+
+nzv_trans <- 
+  recipe(ID ~ ., data = data_train) %>% 
+  step_nzv(all_predictors())
+
+nzv_estimates <- prep(nzv_trans)
+
+nzv <- colnames(juice(nzv_estimates))
+dat_nzv <- data_train %>% dplyr::select(ID, all_of(nzv), -second)
+dat_nzv_test <- data_test %>% dplyr::select(ID, all_of(nzv), -second)
+
+train <- dat_nzv
+train$class <- ifelse(train$ID == sub, 1, 0)
+tmp <- train %>% dplyr::select(-c(ID)) 
+mod <- glm(class ~ ., data = tmp, family=binomial(link="logit"))
+
+
+summary <-
+  mod %>% 
+  tidy() %>%
+  arrange(p.value) %>%
+  filter(term != "(Intercept)") 
+
+terms <- summary$term
+# variance covariance matrix 
+v_hat <- vcov(mod)[terms, terms]
+a <- 1/(sqrt(diag(v_hat))) 
+A <- a %*% t(a)
+C <- v_hat*A
+
+q <- mvtnorm::qmvnorm(p = .95, corr = C)$quantile
+
+summary <- 
+  summary %>% rowwise() %>% 
+  mutate(
+    lb_marg = estimate - (1.96*std.error),
+    ub_marg = estimate + (1.96*std.error),
+    lb_joint = estimate - (q*std.error),
+    ub_joint = estimate +  (q*std.error),
+    sig_marg = ifelse(between(0, lb_marg, ub_marg), 0, 1),
+    sig_joint = ifelse(between(0, lb_joint, ub_joint), 0, 1),
+  )
+summary <- 
+  summary %>% rowwise() %>% 
+  mutate(
+    lag = str_sub(term, -3, -2),
+    sig = sub('.', '', str_split(term, " ")[[1]][1]),
+    lagsig = str_split(term, " ")[[1]][2]
+  )
+
+train_times <-
+  data_train %>%
+  dplyr::select(ID, second) %>%
+  filter(ID == sub)
+
+
+pts_dat <- 
+  raw_data %>% inner_join(., train_times, by = c("ID" = "ID", "second" = "second")) %>%
+  group_by(ID, second) %>% mutate(
+    sig = signal_rwrist, 
+    lag_1 = dplyr::lag(signal_rwrist, 15),
+    lag_2 = dplyr::lag(signal_rwrist, 30),
+    lag_3 = dplyr::lag(signal_rwrist, 45)
+  ) %>% dplyr::select(sig, lag_1, lag_2, lag_3, ID, second) %>% 
+  pivot_longer(lag_1:lag_3) %>% filter(!is.na(value)) %>% 
+  mutate(lag = case_when(
+    name == "lag_1" ~ 15,
+    name == "lag_2" ~ 30,
+    name== "lag_3" ~ 45,
+  ),
+  xmin = value, 
+  xmax = value,
+  ymin = sig,
+  ymax = sig) 
+
+labs <- c("Lag = 0.15s", "Lag = 0.30s", "Lag = 0.45s")
+names(labs) <- c(15, 30, 45)
+max <- max(exp(summary$estimate))
+min <- min(exp(summary$estimate))
+
+g <- summary %>% 
+  mutate(
+    est = ifelse(sig_marg == 1, exp(estimate), NA)) %>% 
+  mutate(
+    xmin = as.numeric(sub(".*\\(", "", sub(",.*", "", lagsig))),
+    xmax = as.numeric(str_sub(sub(".*,", "", lagsig), end = -2)),
+    ymin =  as.numeric(sub(".*\\(", "", sub(",.*", "", sig))),
+    ymax = as.numeric(str_sub(sub(".*,", "", sig), end = -2))
+  ) %>% ggplot(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax))+geom_rect(aes(fill = est)) +
+  facet_wrap(.~lag, labeller = labeller(lag = labs))+scale_fill_gradient2(low = "blue", mid = "yellow", high = "red",
+                                                                          midpoint = 1,na.value="white", name = "Odds Ratio",
+                                                                          limits = c(min, max),
+                                                                          breaks=seq(0.5, 2, 0.5))+
+  labs( x ="Lag Acceleration (g)", y ="Acceleration (g)", title = "Significant Grid Cells")+
+  scale_x_continuous(limits=c(0,3))+scale_y_continuous(limits=c(0,3))+
+  theme_bw()+
+  theme(strip.text = element_text(face = "italic", size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        legend.position = "bottom",
+        aspect.ratio = 1,
+        plot.title  = element_text(size = 16))
+
+g + geom_point(data = pts_dat, aes(x = value, y = sig), col = "black", 
+               alpha = 0.03, size = .4)
+
+
+```
+
+---
+
+## Inference 
+
+```{r}
+g <- summary %>% 
+  mutate(
+    est = ifelse(sig_joint == 1, exp(estimate), NA)) %>% 
+  mutate(
+    xmin = as.numeric(sub(".*\\(", "", sub(",.*", "", lagsig))),
+    xmax = as.numeric(str_sub(sub(".*,", "", lagsig), end = -2)),
+    ymin =  as.numeric(sub(".*\\(", "", sub(",.*", "", sig))),
+    ymax = as.numeric(str_sub(sub(".*,", "", sig), end = -2))
+  ) %>% ggplot(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax))+geom_rect(aes(fill = est)) +
+  facet_wrap(.~lag, labeller = labeller(lag = labs))+scale_fill_gradient2(low = "blue", mid = "yellow", high = "red",
+                                                                          midpoint = 1,na.value="white", name = "Odds Ratio",
+                                                                          limits = c(min, max),
+                                                                          breaks=seq(0.5, 2, 0.5))+
+  labs( x ="Lag Acceleration (g)", y ="Acceleration (g)", title = "Significant Grid Cells, After CMA")+
+  scale_x_continuous(limits=c(0,3))+scale_y_continuous(limits=c(0,3))+
+  theme_bw()+
+  theme(strip.text = element_text(face = "italic", size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        aspect.ratio = 1,
+        legend.position = "bottom", plot.title  = element_text(size = 16))
+
+g + geom_point(data = pts_dat, aes(x = value, y = sig), col = "black", 
+               alpha = 0.03, size = .4)
+
+
+```
+
+
+---
+
+## Fingerprints: well-predicted subject
+
+```{r}
+onelag <- function(subject, lag, data){
+  df_dens <- 
+    data %>% 
+    filter(ID==subject) %>% 
+    dplyr::select(signal_rwrist, second) %>% 
+    group_by(second) %>%
+    mutate(
+      lag_signal = lag(signal_rwrist, n = lag)) %>% 
+    drop_na() %>% 
+    mutate(
+      lag = lag 
+    )
+  df_dens$density <- get_density(df_dens$signal_rwrist, df_dens$lag_signal, n=100)
+  df_dens
+}
+get_density <- function(x, y, ...) {
+  dens <- MASS::kde2d(x, y, ...)
+  ix <- findInterval(x, dens$x)
+  iy <- findInterval(y, dens$y)
+  ii <- cbind(ix, iy)
+  return(dens$z[ii])
+}
+
+
+df_all_zju <- read_csv(here::here("data", "df_all_zju.csv"), 
+                       col_types = cols(...1 = col_skip())) %>%
+  mutate(
+    ID = ID - 22
+  )
+df_zju_train <-
+  df_all_zju %>% 
+  filter(session == "session_1") 
+
+df_zju_test <-
+  df_all_zju %>% 
+  filter(session == "session_2")
+library(viridis)
+
+labs <- c("Lag = 0.15s", "Lag = 0.30s", "Lag = 0.45s")
+names(labs) <- c(15, 30, 45)
+all_densities_train <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_train, subject=5) %>%
+  mutate(session = "Session 1")
+all_densities_test <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_test, subject=5)  %>%
+  mutate(session = "Session 2")
+
+all_dens <- bind_rows(all_densities_test, all_densities_train)
+maxdens <- max(all_dens$density)
+
+s5 <- 
+  all_dens %>% 
+  ggplot(aes(x = lag_signal, y = signal_rwrist, col = density))+
+  geom_point() + 
+  scale_color_viridis(name = "Density", limits=c(0, maxdens))+
+  scale_x_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  scale_y_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  theme_bw() + facet_grid(session~lag, labeller = labeller(lag = labs))+ 
+  labs(x = latex2exp::TeX(r'(Lag Acceleration (g))'), 
+       y = latex2exp::TeX(r'(Acceleration (g))'),
+       title = "Subject 5")+
+  theme(strip.text.x = element_text(size = 15),
+        strip.text.y = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        plot.title = element_text(size = 16),
+        aspect.ratio = 1,
+        legend.position = "bottom")
+# s5
+all_densities_train <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_train, subject=79) %>%
+  mutate(session = "Session 1")
+all_densities_test <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_test, subject=79)  %>%
+  mutate(session = "Session 2")
+
+all_dens <- bind_rows(all_densities_test, all_densities_train)
+maxdens <- max(all_dens$density)
+
+s79 <- 
+  all_dens %>% 
+  ggplot(aes(x = lag_signal, y = signal_rwrist, col = density))+
+  geom_point() + 
+  scale_color_viridis(name = "Density", limits=c(0, maxdens))+
+  scale_x_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  scale_y_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  theme_bw() + facet_grid(session~lag, labeller = labeller(lag = labs))+ 
+labs(x = latex2exp::TeX(r'(Lag Acceleration (g))'), 
+       y = latex2exp::TeX(r'(Acceleration (g))'),
+       title = "Subject 79")+
+  theme(strip.text.x = element_text(size = 15),
+        strip.text.y = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        plot.title = element_text(size = 16),
+        aspect.ratio = 1,
+        legend.position = "bottom")
+
+# s79
+ggpubr::ggarrange(s5, s79)
+```
+
+----
+
+## Fingerprints: poorly-predicted subject 
+
+```{r}
+all_densities_train <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_train, subject=3) %>%
+  mutate(session = "Session 1")
+all_densities_test <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_test, subject=3)  %>%
+  mutate(session = "Session 2")
+
+all_dens <- bind_rows(all_densities_test, all_densities_train)
+maxdens <- max(all_dens$density)
+
+s3 <- 
+  all_dens %>% 
+  ggplot(aes(x = lag_signal, y = signal_rwrist, col = density))+
+  geom_point() + 
+  scale_color_viridis(name = "Density", limits=c(0, maxdens))+
+  scale_x_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  scale_y_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  theme_bw() + facet_grid(session~lag, labeller = labeller(lag = labs))+ 
+  labs(x = latex2exp::TeX(r'(Lag Acceleration (g))'), 
+       y = latex2exp::TeX(r'(Acceleration (g))'),
+       title = "Subject 3")+
+  theme(strip.text.x = element_text(size = 15),
+        strip.text.y = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        plot.title = element_text(size = 16),
+        aspect.ratio = 1,
+        legend.position = "bottom")
+all_densities_train <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_train, subject=136) %>%
+  mutate(session = "Session 1")
+all_densities_test <- map_dfr(.x = seq(15,45,15), .f = onelag, data = df_zju_test, subject=136)  %>%
+  mutate(session = "Session 2")
+
+all_dens <- bind_rows(all_densities_test, all_densities_train)
+maxdens <- max(all_dens$density)
+
+s136 <- 
+  all_dens %>% 
+  ggplot(aes(x = lag_signal, y = signal_rwrist, col = density))+
+  geom_point() + 
+  scale_color_viridis(name = "Density", limits=c(0, maxdens))+
+  scale_x_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  scale_y_continuous(breaks = seq(0, 3, by = 1), limits = c(0,3),
+                     minor_breaks = seq(0, 3, 0.25)) +
+  theme_bw() + facet_grid(session~lag, labeller = labeller(lag = labs))+ 
+  labs(x = latex2exp::TeX(r'(Lag Acceleration (g))'), 
+       y = latex2exp::TeX(r'(Acceleration (g))'),
+       title = "Subject 136")+
+  theme(strip.text.x = element_text(size = 15),
+        strip.text.y = element_text(size = 15),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 15),
+        plot.title = element_text(size = 16),
+        aspect.ratio = 1,
+        legend.position = "bottom")
+ggpubr::ggarrange(s3, s136)
+
+```
+
+```{r, include = FALSE}  
+# ## Session 1 vs. Session 2; Well Predicted
+#   
+#   ![](figs/fingerprint_wellpred.pdf)
+# 
+# ---
+#   
+# ## Session 1 vs. Session 2; Poorly Predicted
+#   
+#   
+#   ![](figs/fingerprints_poorpred.pdf)
+```
+
+
+## Revisiting problem statement 
+
+```{r}
+theme_set(theme_classic())
+supp.labs <- c("Subject 2", "Subject 21", "Subject 29")
+names(supp.labs) <- c(2, 21, 29)
+g3 <- df_IU %>% filter(ID2 %in% c(2, 21, 29) &
+                         second > 3 &
+                         second <= 6) %>% dplyr::select(signal_lw, time, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, color = as.factor(ID2))) +
+  facet_wrap(. ~ ID2,
+             nrow = 3,
+             labeller =
+               labeller(ID2 = supp.labs)) +
+  geom_line(linewidth = 1.1) +
+  # scale_color_paletteer_d("ggthemes::Superfishel_Stone") +
+  scale_color_manual(values = c("#8CC2CAFF", "#55AD89FF", "#BB7693FF"))+
+  theme(legend.position = "none") +
+  scale_y_continuous(limits = c(0, 3),  breaks = seq(0, 3, 1)) +
+  labs(x = "Time (seconds)", y = "Magnitude of Acceleration (g)") +
+  theme(
+    axis.title = element_text(size = 15),
+    strip.text = element_text(size = 12),
+    axis.text  = element_text(size = 12)
+  )
+
+supp.labs <- c("Subject 21", "Subject 22", "Subject 30")
+names(supp.labs) <- c(21, 22, 30)
+
+g4 <- df_IU %>% filter(ID2 %in% c(21, 22, 30) &
+                         time <= 13 &
+                         time > 10) %>% dplyr::select(signal_lw, time, ID2) %>%
+  ggplot(aes(x = time, y = signal_lw, col = as.factor(ID2))) +
+  facet_wrap(. ~ ID2,
+             nrow = 3,
+             labeller =
+               labeller(ID2 = supp.labs)) +
+  geom_line(linewidth = 1.1) +
+  # scale_color_paletteer_d("ggthemes::Superfishel_Stone", direction = -1) +
+    scale_color_manual(values = c("#55AD89FF", "#C3BC3FFF", "#767676FF"))+
+  theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(0, 3), breaks = seq(0, 3, 1)) +
+  labs(x = "Time (seconds)", y = "") +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 12),
+    title = element_text(size = 15)
+  )
+
+ggpubr::ggarrange(g3, g4, legend = "none")
+```
+
+
+## Acknowledgements
+
++ Andrew Leroux, PhD, University of Colorado
++ Jaroslaw Harezlak, PhD, Indiana University
++ Yan Zhang, ScM, Johns Hopkins Bloomberg School of Public Health
++ Ciprian Crainiceanu, PhD, Johns Hopkins Bloomberg School of Public Health
