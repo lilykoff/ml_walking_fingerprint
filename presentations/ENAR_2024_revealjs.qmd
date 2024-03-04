@@ -50,6 +50,9 @@ col4 = "#F64971"
 
 ```
 
+## Follow along 
+
+![Link to slides: <https://lilykoff.github.io/ml_walking_fingerprint/>](figs/Fingerprinting.png){fig-align="left"}
 
 ## The Problem: Can We Identify an Individual From Their Walking?
 
