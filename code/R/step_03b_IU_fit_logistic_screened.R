@@ -1,0 +1,281 @@
+library(tidyverse)
+library(purrr)
+library(tidymodels)
+library(magrittr)
+tidymodels_prefer()
+options(dplyr.summarise.inform = FALSE)
+
+## read in data
+grid_data_lw_IU <- readRDS(here::here("data/grid_data_lw_IU.rds"))
+set.seed(123)
+initialsplit = initial_split(grid_data_lw_IU, prop = 3/4, strata = ID)
+ids <- unique(grid_data_lw_IU$ID)
+
+
+
+data_train = training(initialsplit)
+data_test = testing(initialsplit)
+
+# function to fit ovr logistic regression models
+fit_model_cma <- function(subject, train, test) {
+  train$class <- ifelse(train$ID == subject, 1, 0)
+  test$class <- ifelse(test$ID == subject, 1, 0)
+  tmp <- train %>% dplyr::select(-c(ID, second))
+  tmp_test <- test %>% dplyr::select(-c(ID, second))
+  mod <-
+    glm(class ~ ., data = tmp, family = binomial(link = "logit"))
+  # pred <- predict.glm(mod, newdata = tmp_test, type = "response")
+  
+  summary <-
+    mod %>% 
+    tidy() %>%
+    arrange(p.value) %>%
+    filter(term != "(Intercept)") 
+  
+  terms <- summary$term
+  # variance covariance matrix 
+  # code to cma adjustment 
+  v_hat <- vcov(mod)[terms, terms]
+  a <- 1/(sqrt(diag(v_hat))) 
+  A <- a %*% t(a)
+  C <- v_hat*A
+  
+  q <- mvtnorm::qmvnorm(p = .95, corr = C)$quantile
+  
+  summary <- 
+    summary %>% rowwise() %>% 
+    mutate(
+      lb_marg = estimate - (1.96*std.error),
+      ub_marg = estimate + (1.96*std.error),
+      lb_cma = estimate - (q*std.error),
+      ub_cma = estimate +  (q*std.error),
+      sig_marg = ifelse(between(0, lb_marg, ub_marg), 0, 1),
+      sig_cma = ifelse(between(0, lb_cma, ub_cma), 0, 1),
+    )
+  terms <-
+    summary %>% filter(sig_cma == 1) %>%
+    dplyr::select(term) %>%
+    unlist() %>%
+    str_remove_all("`")
+  train_cma <- tmp %>% dplyr::select(c(all_of(terms), class))
+  test_cma <- test %>% dplyr::select(all_of(terms))
+  mod <-
+    glm(class ~ ., data = train_cma, family = binomial(link = "logit"))
+  pred <- predict.glm(mod, newdata = test_cma, type = "response")
+  return(pred)
+}
+
+fit_model_marg <- function(subject, train, test) {
+  train$class <- ifelse(train$ID == subject, 1, 0)
+  test$class <- ifelse(test$ID == subject, 1, 0)
+  tmp <- train %>% dplyr::select(-c(ID, second))
+  tmp_test <- test %>% dplyr::select(-c(ID, second))
+  mod <-
+    glm(class ~ ., data = tmp, family = binomial(link = "logit"))
+  # pred <- predict.glm(mod, newdata = tmp_test, type = "response")
+  
+  summary <-
+    mod %>% 
+    tidy() %>%
+    arrange(p.value) %>%
+    filter(term != "(Intercept)") 
+  
+  terms <- summary$term
+  # variance covariance matrix 
+  # code to cma adjustment 
+  v_hat <- vcov(mod)[terms, terms]
+  a <- 1/(sqrt(diag(v_hat))) 
+  A <- a %*% t(a)
+  C <- v_hat*A
+  
+  q <- mvtnorm::qmvnorm(p = .95, corr = C)$quantile
+  
+  summary <- 
+    summary %>% rowwise() %>% 
+    mutate(
+      lb_marg = estimate - (1.96*std.error),
+      ub_marg = estimate + (1.96*std.error),
+      lb_cma = estimate - (q*std.error),
+      ub_cma = estimate +  (q*std.error),
+      sig_marg = ifelse(between(0, lb_marg, ub_marg), 0, 1),
+      sig_cma = ifelse(between(0, lb_cma, ub_cma), 0, 1),
+    )
+  terms <-
+    summary %>% filter(sig_marg == 1) %>%
+    dplyr::select(term) %>%
+    unlist() %>%
+    str_remove_all("`")
+  train_cma <- tmp %>% dplyr::select(c(all_of(terms), class))
+  test_cma <- test %>% dplyr::select(all_of(terms))
+  mod <-
+    glm(class ~ ., data = train_cma, family = binomial(link = "logit"))
+  pred <- predict.glm(mod, newdata = test_cma, type = "response")
+  return(pred)
+}
+
+# first we want to remove columns with near zero variance
+nzv_trans <-
+  recipe(ID ~ ., data = data_train) %>%
+  step_nzv(all_predictors())
+
+nzv_estimates <- prep(nzv_trans)
+
+nzv <- colnames(juice(nzv_estimates))
+dat_nzv <- data_train %>% dplyr::select(ID, all_of(nzv))
+dat_nzv_test <- data_test %>% dplyr::select(ID, all_of(nzv))
+
+## now fit models, get predictions
+all_predictions_IU_cma <-
+  map_dfc(
+    .x = ids,
+    .f = fit_model_cma,
+    train = dat_nzv,
+    test = dat_nzv_test,
+    .progress = T
+  ) %>%
+  janitor::clean_names()
+
+all_predictions_IU_marg <-
+  map_dfc(
+    .x = ids,
+    .f = fit_model_marg,
+    train = dat_nzv,
+    test = dat_nzv_test,
+    .progress = T
+  ) %>%
+  janitor::clean_names()
+
+
+# Time difference of 44.60639 secs
+
+
+# column j is predicted probability that data in that row belong to subject j
+# normalize probabilities
+row_sums <- rowSums(all_predictions_IU_cma)
+
+# normalize and add "true subject column"
+all_predictions_IU_cma %<>%
+  bind_cols(sum = row_sums) %>%
+  rowwise() %>%
+  mutate(across(x1:x32, ~ .x / sum)) %>%
+  dplyr::select(-sum) %>%
+  ungroup() %>%
+  bind_cols(true_subject = dat_nzv_test$ID)
+
+
+row_sums <- rowSums(all_predictions_IU_marg)
+
+# normalize and add "true subject column"
+all_predictions_IU_marg %<>%
+  bind_cols(sum = row_sums) %>%
+  rowwise() %>%
+  mutate(across(x1:x32, ~ .x / sum)) %>%
+  dplyr::select(-sum) %>%
+  ungroup() %>%
+  bind_cols(true_subject = dat_nzv_test$ID)
+
+
+# if (!dir.exists("predictions")) {
+#   dir.create(here::here("predictions"))
+# }
+saveRDS(all_predictions_IU_cma,
+        here::here("predictions/IU_logistic_predictions_screened.rds"))
+
+# print some results summaries
+
+get_summarized_predictions <- function(predictions, long = FALSE) {
+  if (long == T) {
+    predictions %>%
+      group_by(true_subject) %>%
+      mutate(sec = row_number()) %>%
+      pivot_longer(cols = -c("true_subject", "sec")) %>%
+      mutate(model = as.numeric(sub(".*x", "", name))) %>%
+      rename(pred = value) %>%
+      ungroup() %>%
+      group_by(true_subject, model) %>%
+      summarize(mean_pred = mean(pred, na.rm = TRUE)) %>%
+      mutate(correct = ifelse(true_subject == model, 1, 0))
+  }
+  else{
+    predictions %>%
+      group_by(true_subject) %>%
+      mutate(sec = row_number()) %>%
+      pivot_longer(cols = -c("true_subject", "sec")) %>%
+      mutate(model = as.numeric(sub(".*x", "", name))) %>%
+      rename(pred = value) %>%
+      ungroup() %>%
+      group_by(true_subject, model) %>%
+      summarize(mean_pred = mean(pred, na.rm = TRUE)) %>%
+      group_by(true_subject) %>%
+      summarize(
+        maxprob = first(max(mean_pred)),
+        predicted_sub = first(model[mean_pred == maxprob]),
+        probsubj = first(mean_pred[true_subject == model])
+      ) %>%
+      mutate(correct = ifelse(as.numeric(predicted_sub) == true_subject, 1, 0))
+  }
+}
+
+get_summarized_predictions(all_predictions_IU_cma) %>% print(n = Inf)
+get_summarized_predictions(all_predictions_IU_cma) %>% 
+  summarize(sum = sum(correct))
+get_summarized_predictions(all_predictions_IU_marg) %>% print(n = Inf) 
+
+# fn takes number of seconds to average over as input, outputs classification stats
+get_prediction_stats <- function(predictions, seconds) {
+  predictions %>%
+    group_by(true_subject) %>%
+    mutate(sec = floor(row_number() / seconds)) %>%
+    pivot_longer(cols = -c("true_subject", "sec")) %>%
+    mutate(model = as.numeric(sub(".*x", "", name))) %>%
+    rename(pred = value) %>%
+    ungroup() %>%
+    group_by(true_subject, model, sec) %>%
+    summarize(mean_pred = mean(pred, na.rm = TRUE)) %>%
+    group_by(true_subject, sec) %>%
+    summarize(maxprob = max(mean_pred),
+              predicted_subject = model[mean_pred == maxprob]) %>% ungroup() %>%
+    dplyr::select(c(true_subject, predicted_subject)) %>%
+    mutate(across(1:2, as.factor)) %>%
+    yardstick::conf_mat(., truth = true_subject, estimate = predicted_subject) %>%
+    summary() %>%
+    mutate(s = seconds)
+}
+
+results_summarized <-
+  map_dfr(
+    .x = c(1, seq(10, 100, 10)),
+    .f = get_prediction_stats,
+    predictions = all_predictions_IU,
+    .progress = T
+  ) %>%
+  filter(.metric != "detection_prevalence")
+supp.labs <-
+  c(
+    "Accuracy",
+    "Kappa",
+    "Sensitivity",
+    "Specificity",
+    "PPV",
+    "NVP",
+    "MCC",
+    "J Index",
+    "Balanced Accuracy",
+    "Precision",
+    "Recall",
+    "F1 Score"
+  )
+names(supp.labs) <- unique(results_summarized$.metric)
+
+results_summarized %>%
+  ggplot(aes(x = s, y = .estimate, col = .metric)) +
+  geom_point() +
+  geom_line() +
+  theme_light() +
+  facet_wrap(. ~ .metric,
+             scales = "free_y",
+             labeller = labeller(.metric = supp.labs)) +
+  labs(x = "Number of Seconds", y = "Estimate") +
+  scale_x_continuous(breaks = c(1, seq(10, 100, 10))) +
+  theme(axis.text.x = element_text(angle = 45)) +
+  theme(legend.position = "none")
