@@ -75,16 +75,16 @@ all_results_zjus1_ext %>%
             pct = correct / n()) %>% 
   arrange(desc(pct))
 
-files = list.files(here::here("results_ml"), full.names = TRUE, pattern="predictions_zju_sub*")
-
-file_list = map(.x = files, 
-                .f = function(x){readRDS(x) %>% 
-                    group_by(model) %>% 
-                    mutate(row = row_number())})
-
-all_files = bind_rows(file_list) %>% split(., .$model)
-
-all_results_zjus1 = map_dfr(.x = all_files, .f = process_results)
+# files = list.files(here::here("results_ml"), full.names = TRUE, pattern="predictions_zju_sub*")
+# 
+# file_list = map(.x = files, 
+#                 .f = function(x){readRDS(x) %>% 
+#                     group_by(model) %>% 
+#                     mutate(row = row_number())})
+# 
+# all_files = bind_rows(file_list) %>% split(., .$model)
+# 
+# all_results_zjus1 = map_dfr(.x = all_files, .f = process_results)
 
 # we wan
 
@@ -112,7 +112,8 @@ test_key = test %>% select(ID, second) %>%
   mutate(row = row_number()) %>% 
   rename(true_subject = ID)
 
-files = list.files(here::here("results_ml_extended"), full.names = TRUE, pattern="predictions_zjus1s2*")
+files = list.files(here::here("results_ml_extended"), full.names = TRUE, pattern="predictions_zjus1s2_subject_extended*")
+
 
 file_list = map(.x = files, 
                 .f = function(x){readRDS(x) %>% 
@@ -123,39 +124,39 @@ all_files = bind_rows(file_list) %>% split(., .$model)
 
 # we want one row per second and "true subject" column 
 
-all_results_zjus1s2 = map_dfr(.x = all_files, .f = process_results)
+all_results_zjus1s2_ext = map_dfr(.x = all_files, .f = process_results)
 
-all_results_zjus1s2 %>% 
+all_results_zjus1s2_ext %>% 
   group_by(model) %>% 
   summarize(correct = sum(correct),
             pct = correct / n()) %>% 
   arrange(desc(pct))
 
 
-files = list.files(here::here("results_ml"), full.names = TRUE, pattern="predictions_zjus1s2*")
+ files = list.files(here::here("results_ml"), full.names = TRUE, pattern="predictions_zjus1s2*")
 
-file_list = map(.x = files, 
-                .f = function(x){readRDS(x) %>% 
-                    group_by(model) %>% 
+file_list = map(.x = files,
+                .f = function(x){readRDS(x) %>%
+                    group_by(model) %>%
                     mutate(row = row_number())})
 
 all_files = bind_rows(file_list) %>% split(., .$model)
 
-# we want one row per second and "true subject" column 
+# we want one row per second and "true subject" column
 
 all_results_zjus1s2 = map_dfr(.x = all_files, .f = process_results)
 
 
 
 # table 
-all_results_zjus1 %>% 
+all_results_zjus1_ext %>% 
   group_by(model) %>% 
   summarize(correct_s1 = sum(correct),
             pct_s1 = correct_s1 / n()) %>% 
   left_join(all_results_zjus1_ext %>% 
               group_by(model) %>% 
               summarize(correct_s1_ext = sum(correct),
-                        pct_s1 = correct_s1 / n()),
+                        pct_s1_ext = correct_s1_ext / n()),
             by = "model") %>% 
   left_join(all_results_zjus1s2 %>% 
               group_by(model) %>% 
@@ -165,25 +166,71 @@ all_results_zjus1 %>%
   left_join(all_results_zjus1s2_ext %>% 
               group_by(model) %>% 
               summarize(correct_s1s2_ext = sum(correct),
-                        pct_s1s2 = correct_s1s2_ext / n()),
-            by = "model")
+                        pct_s1s2_ext = correct_s1s2_ext / n()),
+            by = "model") %>% 
   filter(model != "none_lreg") %>% 
   mutate(across(starts_with("pct"), ~sprintf("%.02f", round(.x, 2)))) %>% 
-  mutate(model = c("K-Nearest Neighbors", 
-                   "Neural Net", 
-                   "Polynomial SVM", 
-                   "Radial SVM", 
-                   "BART", 
+  mutate(model = c("K-nearest neighbors", 
+                   "Neural network", 
+                   "Polynomial-basis SVM", 
+                   "Radial-basis SVM", 
+                   "Bayesinan Additive Regression Trees", 
                    "Boosted Tree", 
-                   "Flexible Discriminant", 
+                   "Flexible Discriminant Analysis", 
                    "Naive Bayes", 
                    "Penalized logistic regression", 
-                   "Random Forest")) %>%
-  arrange(desc(pct_s1s2)) %>% 
+                   "Random forest")) %>%
+  arrange(desc(pct_s1)) %>% 
   kableExtra::kable(align = "lllll", booktabs  = TRUE,  format = "latex", col.names = 
                       c("Model", "Number Correct", "% Correct", "Number Correct", "% Correct",
-                        "Number Correct", "% Correct")) %>% 
-  kableExtra::add_header_above(c(" " = 1, "IU" = 2, "ZJU S1" = 2, "ZJU S1S2" = 2)) %>% 
+                        "Number Correct", "% Correct", "Number Correct", "% Correct")) %>% 
+  kableExtra::add_header_above(c(" " = 1, "3 lags" = 2, "6 lags"= 2,
+                                 "3 lags" = 2, "6 lags" = 2)) %>% 
+  kableExtra::add_header_above(c(" " = 1, "ZJU S1" = 4, "ZJU S1S2" = 4)) %>% 
   kableExtra::kable_styling(latex_options = "scale_down")  
 
 # one model per person
+
+all_results_zjus1 %>% 
+  group_by(model) %>% 
+  summarize(correct_s1 = sum(correct),
+            pct_s1 = correct_s1 / n()) %>% 
+  left_join(all_results_zjus1_ext %>% 
+              group_by(model) %>% 
+              summarize(correct_s1_ext = sum(correct),
+                        pct_s1_ext = correct_s1_ext / n()),
+            by = "model") %>% 
+  left_join(all_results_zjus1s2 %>% 
+              group_by(model) %>% 
+              summarize(correct_s1s2 = sum(correct),
+                        pct_s1s2 = correct_s1s2 / n()),
+            by = "model") %>% 
+  left_join(all_results_zjus1s2_ext %>% 
+              group_by(model) %>% 
+              summarize(correct_s1s2_ext = sum(correct),
+                        pct_s1s2_ext = correct_s1s2_ext / n()),
+            by = "model") %>% 
+  filter(model != "none_lreg") %>% 
+  mutate(across(starts_with("pct"), ~sprintf("%.02f", round(.x, 2)))) %>% 
+  mutate(model = c("K-nearest neighbors", 
+                   "Neural network", 
+                   "Polynomial-basis SVM", 
+                   "Radial-basis SVM", 
+                   "Bayesinan Additive Regression Trees", 
+                   "Boosted Tree", 
+                   "Flexible Discriminant Analysis", 
+                   "Naive Bayes", 
+                   "Penalized logistic regression", 
+                   "Random forest")) %>%
+  arrange(desc(pct_s1)) %>% 
+  kableExtra::kable(align = "lllll", booktabs  = TRUE, 
+                    format = "latex",
+                    col.names = 
+                      c("Model", "Number Correct", "% Correct", "Number Correct", "% Correct",
+                        "Number Correct", "% Correct", "Number Correct", "% Correct")) %>% 
+  kableExtra::add_header_above(c(" " = 1, "3 lags" = 2, "6 lags"= 2,
+                                 "3 lags" = 2, "6 lags" = 2)) %>% 
+  kableExtra::add_header_above(c(" " = 1, "ZJU S1" = 4, "ZJU S1S2" = 4)) %>% 
+  kableExtra::kable_styling(latex_options = "scale_down")  
+
+

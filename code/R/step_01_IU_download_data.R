@@ -30,8 +30,8 @@ read_files <- function(x) {
 # read in all files and row bind into df
 df_all <-
   files %>%
-  map_dfr(read_files) %>%
-  dplyr::select(-`<html>`)
+  map_dfr(read_files)
+  # dplyr::select(-`<html>`)
 
 df_all <- files %>% map_dfr(read_files)
 
