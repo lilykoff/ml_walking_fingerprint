@@ -1,6 +1,6 @@
 # Walking fingerprinting using machine learning 
 
-This code accompanies the manuscript [https://doi.org/10.1093/jrsssc/qlae033](Walking fingerprinting") where we identify individuals from their accelerometry-derived walking pattern
+This code accompanies the manuscript [https://doi.org/10.1093/jrsssc/qlae033](Walking fingerprinting) where we identify individuals from their accelerometry-derived walking pattern
 
 ## Description
 
